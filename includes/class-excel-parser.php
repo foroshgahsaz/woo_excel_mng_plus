@@ -35,6 +35,59 @@ class Woo_Excel_Mng_Excel_Parser
     }
 
     /**
+     * تبدیل جداکننده اعشار فارسی (/) به نقطه برای محاسبات عددی
+     */
+    private static function normalize_decimal_string($value)
+    {
+        $value = trim(strval($value));
+        if ($value === '') {
+            return '';
+        }
+
+        $value = str_replace(array(',', '٬', ' '), '', $value);
+
+        if (preg_match('/^\d+\/\d+$/', $value)) {
+            $value = str_replace('/', '.', $value);
+        }
+
+        return $value;
+    }
+
+    /**
+     * یافتن ایندکس ستون شناسه محصول در هدر
+     */
+    private static function find_product_id_column_index(array $headers)
+    {
+        $aliases = array(
+            'شناسه محصول',
+            'id محصول',
+            'product id',
+            'product_id',
+            'آی دی محصول',
+            'آیدی محصول',
+        );
+
+        foreach ($aliases as $alias) {
+            $index = array_search(strtolower($alias), $headers, true);
+            if ($index !== false) {
+                return $index;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param float|string $value
+     */
+    private static function parse_weight_value($value)
+    {
+        $normalized = self::normalize_decimal_string(self::normalize_cell_value($value));
+
+        return $normalized === '' ? 0.0 : floatval($normalized);
+    }
+
+    /**
      * بررسی وجود PhpSpreadsheet و پیش‌نیازها
      */
     private static function check_phpspreadsheet()
@@ -80,8 +133,13 @@ class Woo_Excel_Mng_Excel_Parser
     /**
      * خواندن فایل Excel محصولات
      */
-    public static function parse_products_file($file_path)
+    /**
+     * @param string $file_path
+     * @param array  $args require_product_id(bool)
+     */
+    public static function parse_products_file($file_path, array $args = array())
     {
+        $require_product_id = !empty($args['require_product_id']);
         $check_result = self::check_phpspreadsheet();
 
         // اگر نتیجه array باشد (خطا)، آن را برگردان
@@ -129,6 +187,13 @@ class Woo_Excel_Mng_Excel_Parser
                 $column_indexes[$col] = $index;
             }
 
+            $product_id_index = self::find_product_id_column_index($headers);
+            if ($require_product_id && $product_id_index === false) {
+                return array(
+                    'success' => false,
+                    'message' => __('ستون «شناسه محصول» در فایل یافت نشد. برای موارد خاص این ستون الزامی است.', 'woo-excel-mng'),
+                );
+            }
 
             // خواندن داده‌ها
             $products_data = array();
@@ -143,32 +208,49 @@ class Woo_Excel_Mng_Excel_Parser
                 $color = isset($row[$column_indexes['رنگ']]) ? self::normalize_cell_value($row[$column_indexes['رنگ']]) : '';
                 $thickness = isset($row[$column_indexes['ضخامت']]) ? self::normalize_cell_value($row[$column_indexes['ضخامت']]) : '';
 
-                // خواندن وزن (حذف جداکننده هزارگان)
-                $weight_raw = isset($row[$column_indexes['وزن (کیلوگرم)']]) ? self::normalize_cell_value($row[$column_indexes['وزن (کیلوگرم)']]) : '0';
-                $weight_raw = str_replace(array(',', '٬', ' '), '', $weight_raw);
-                $weight = floatval($weight_raw);
+                $weight = isset($row[$column_indexes['وزن (کیلوگرم)']])
+                    ? self::parse_weight_value($row[$column_indexes['وزن (کیلوگرم)']])
+                    : 0.0;
 
                 // خواندن قیمت (حذف جداکننده هزارگان)
                 $price_raw = isset($row[$column_indexes['قیمت پایه']]) ? self::normalize_cell_value($row[$column_indexes['قیمت پایه']]) : '0';
                 $price_raw = str_replace(array(',', '٬', ' '), '', $price_raw);
                 $base_price = floatval($price_raw);
 
-                // ذخیره دقیق همان مقادیر Excel
-                $products_data[] = array(
-                    // 'product' => $product_name,
-                    // 'product_slug' => $product_slug, // شناسه محصول (slug) - اختیاری
+                $row_data = array(
                     'طول' => $length,
                     'رنگ' => $color,
                     'ضخامت' => $thickness,
                     'وزن (کیلوگرم)' => $weight,
                     'قیمت پایه' => $base_price,
                 );
+
+                if ($product_id_index !== false) {
+                    $product_id_raw = isset($row[$product_id_index]) ? self::normalize_cell_value($row[$product_id_index]) : '';
+                    $product_id_raw = str_replace(array(',', '٬', ' '), '', $product_id_raw);
+                    $row_data['product_id'] = intval($product_id_raw);
+                }
+
+                $products_data[] = $row_data;
+            }
+
+            if ($require_product_id) {
+                $valid_rows = array_filter($products_data, function ($item) {
+                    return !empty($item['product_id']);
+                });
+                if (empty($valid_rows)) {
+                    return array(
+                        'success' => false,
+                        'message' => __('هیچ ردیف معتبری با شناسه محصول در فایل یافت نشد.', 'woo-excel-mng'),
+                    );
+                }
             }
 
             return array(
                 'success' => true,
                 'data' => $products_data,
-                'count' => count($products_data)
+                'count' => count($products_data),
+                'has_product_ids' => ($product_id_index !== false),
             );
         } catch (Throwable $e) {
             if (class_exists('Woo_Excel_Mng_Logger')) {

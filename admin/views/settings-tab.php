@@ -26,6 +26,11 @@ if (!is_array($disabled_meterage_products)) {
     $disabled_meterage_products = array();
 }
 
+$special_products_option = get_option('woo_excel_mng_special_products', array());
+if (!is_array($special_products_option)) {
+    $special_products_option = array();
+}
+
 
 
 $variable_products = wc_get_products(array(
@@ -154,6 +159,45 @@ $variable_products = wc_get_products(array(
             </div>
         </div>
 
+        <div class="settings-section">
+            <h3><?php _e('محصولات خاص (import از تب موارد خاص)', 'woo-excel-mng'); ?></h3>
+            <p class="description"><?php _e('محصولاتی که اینجا تیک می‌خورند فقط در تب «موارد خاص» برای import نمایش داده می‌شوند و از لیست تب «محصولات» حذف می‌شوند.', 'woo-excel-mng'); ?></p>
+
+            <div class="special-products-list" style="margin-top: 15px; max-height: 400px; overflow-y: auto; border: 1px solid #ccd0d4; padding: 10px; background: #fff;">
+                <?php if (!empty($variable_products)): ?>
+                    <table class="wp-list-table widefat fixed striped">
+                        <thead>
+                            <tr>
+                                <th width="50"><input type="checkbox" id="select-all-special-products"></th>
+                                <th><?php _e('شناسه محصول', 'woo-excel-mng'); ?></th>
+                                <th><?php _e('نام محصول', 'woo-excel-mng'); ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($variable_products as $product):
+                                $product_id = $product->get_id();
+                                $is_special = in_array($product_id, $special_products_option, true);
+                            ?>
+                                <tr>
+                                    <td>
+                                        <input type="checkbox"
+                                            name="special_products[]"
+                                            value="<?php echo esc_attr($product_id); ?>"
+                                            <?php checked($is_special, true); ?>
+                                            class="special-product-checkbox">
+                                    </td>
+                                    <td><?php echo esc_html($product_id); ?></td>
+                                    <td><strong><?php echo esc_html($product->get_name()); ?></strong></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php else: ?>
+                    <p><?php _e('هیچ محصول متغیری یافت نشد.', 'woo-excel-mng'); ?></p>
+                <?php endif; ?>
+            </div>
+        </div>
+
         <!-- بخش جدید: غیرفعال کردن متراژ برای محصولات خاص -->
         <div class="settings-section">
             <h3><?php _e('محصولات بدون متراژ (فقط تعداد در فرمول)', 'woo-excel-mng'); ?></h3>
@@ -241,6 +285,10 @@ $variable_products = wc_get_products(array(
     jQuery(document).ready(function($) {
         $('#select-all-products').on('change', function() {
             $('.product-checkbox').prop('checked', $(this).prop('checked'));
+        });
+
+        $('#select-all-special-products').on('change', function() {
+            $('.special-product-checkbox').prop('checked', $(this).prop('checked'));
         });
     });
 </script>

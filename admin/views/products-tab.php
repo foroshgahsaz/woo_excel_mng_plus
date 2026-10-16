@@ -38,21 +38,23 @@ if ($import_notice) {
                 <li><strong><?php _e('قیمت پایه', 'woo-excel-mng'); ?></strong> - <?php _e('قیمت پایه محصول', 'woo-excel-mng'); ?></li>
             </ul>
 
-            <div id="wem-upload-area" style="display: flex; justify-content: center; flex-direction: column; align-items: center;">
+            <div class="wem-import-root" data-import-mode="standard">
+            <div id="wem-upload-area" class="wem-upload-area" style="display: flex; justify-content: center; flex-direction: column; align-items: center;">
                 <div style="width: 100%; max-width: 600px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
                     <table class="form-table">
                         <tr>
                             <th scope="row"><label for="products_file"><?php _e('انتخاب فایل اکسل:', 'woo-excel-mng'); ?></label></th>
                             <td>
-                                <input type="file" name="products_file" id="products_file" accept=".xlsx,.xls" />
-                                <p id="products_file_name" class="file-name" style="margin-top:8px;color:#666;"></p>
+                                <input type="file" name="products_file" id="products_file" class="wem-products-file" accept=".xlsx,.xls" />
+                                <p id="products_file_name" class="wem-file-name file-name" style="margin-top:8px;color:#666;"></p>
                             </td>
                         </tr>
                         <tr>
                             <th scope="row"><label for="selected_products"><?php _e('انتخاب محصولات:', 'woo-excel-mng'); ?></label></th>
                             <td>
-                                <select name="selected_products[]" id="selected_products" class="wem-select2" multiple="multiple" style="width: 100%; min-height: 150px;" required>
+                                <select name="selected_products[]" id="selected_products" class="wem-selected-products wem-select2" multiple="multiple" style="width: 100%; min-height: 150px;" required>
                                     <?php
+                                    $special_ids = Woo_Excel_Mng_Products::get_special_product_ids();
                                     $all_products = wc_get_products(array(
                                         'limit'  => -1,
                                         'status' => 'publish',
@@ -61,6 +63,9 @@ if ($import_notice) {
                                     ));
 
                                     foreach ($all_products as $product) {
+                                        if (in_array($product->get_id(), $special_ids, true)) {
+                                            continue;
+                                        }
                                         echo '<option value="' . esc_attr($product->get_id()) . '">' . esc_html($product->get_name()) . ' (ID: ' . $product->get_id() . ')</option>';
                                     }
                                     ?>
@@ -71,28 +76,28 @@ if ($import_notice) {
                     </table>
 
                     <p class="submit" style="text-align: center;">
-                        <button type="button" id="wem-start-import" class="button button-primary" disabled style="padding: 10px 30px; font-size: 16px;">
+                        <button type="button" id="wem-start-import" class="wem-start-import button button-primary" disabled style="padding: 10px 30px; font-size: 16px;">
                             <?php _e('شروع پردازش (صف)', 'woo-excel-mng'); ?>
                         </button>
                     </p>
                 </div>
             </div>
 
-            <div id="wem-progress-area" style="display:none;">
+            <div id="wem-progress-area" class="wem-progress-area" style="display:none;">
                 <div class="wem-progress-header">
                     <span id="wem-progress-icon" class="wem-progress-icon">⏳</span>
-                    <span id="wem-progress-label"><?php _e('در حال آماده‌سازی...', 'woo-excel-mng'); ?></span>
+                    <span id="wem-progress-label" class="wem-progress-label"><?php _e('در حال آماده‌سازی...', 'woo-excel-mng'); ?></span>
                 </div>
 
                 <div id="wem-current-product" class="wem-current-product" style="display:none;">
                     <strong><?php _e('محصول جاری:', 'woo-excel-mng'); ?></strong>
-                    <span id="wem-current-product-name">—</span>
+                    <span id="wem-current-product-name" class="wem-current-product-name">—</span>
                     <span class="wem-variation-hint" id="wem-variation-hint"></span>
                 </div>
 
                 <div class="wem-progress-bar-wrap">
                     <div class="wem-progress-bar-bg">
-                        <div id="wem-progress-fill" class="wem-progress-bar-fill" style="width:0%;">
+                        <div id="wem-progress-fill" class="wem-progress-fill wem-progress-bar-fill" style="width:0%;">
                             <span id="wem-progress-percent" class="wem-progress-percent">۰٪</span>
                         </div>
                     </div>
@@ -101,15 +106,15 @@ if ($import_notice) {
                 <div class="wem-progress-stats">
                     <div class="wem-stat-group">
                         <div class="wem-stat-box wem-stat-done">
-                            <span id="wem-stat-done" class="wem-stat-num">۰</span>
+                            <span id="wem-stat-done" class="wem-stat-done wem-stat-num">۰</span>
                             <span class="wem-stat-lbl"><?php _e('محصول انجام‌شده', 'woo-excel-mng'); ?></span>
                         </div>
                         <div class="wem-stat-box wem-stat-remaining-box">
-                            <span id="wem-stat-remaining" class="wem-stat-num">—</span>
+                            <span id="wem-stat-remaining" class="wem-stat-remaining wem-stat-num">—</span>
                             <span class="wem-stat-lbl"><?php _e('باقی‌مانده', 'woo-excel-mng'); ?></span>
                         </div>
                         <div class="wem-stat-box wem-stat-total-box">
-                            <span id="wem-stat-total" class="wem-stat-num">۰</span>
+                            <span id="wem-stat-total" class="wem-stat-total wem-stat-num">۰</span>
                             <span class="wem-stat-lbl"><?php _e('کل محصولات', 'woo-excel-mng'); ?></span>
                         </div>
                     </div>
@@ -118,7 +123,8 @@ if ($import_notice) {
                 <div id="wem-mini-log" class="wem-mini-log"></div>
             </div>
 
-            <div id="wem-result-area"></div>
+            <div id="wem-result-area" class="wem-result-area"></div>
+            </div>
 
             <style>
                 .wem-select2 {
