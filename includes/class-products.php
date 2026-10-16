@@ -285,7 +285,8 @@ class Woo_Excel_Mng_Products
                     continue;
                 }
 
-                $combo_key = $color_term_obj->slug . '::' . $thickness_term_obj->slug;
+                $length_key = $length !== '' ? $length : '_';
+                $combo_key  = $color_term_obj->slug . '::' . $thickness_term_obj->slug . '::' . $length_key;
                 if (isset($seen_combos[$combo_key])) {
                     continue;
                 }
@@ -409,6 +410,58 @@ class Woo_Excel_Mng_Products
         }
 
         return $matrix;
+    }
+
+    /**
+     * شناسه محصولات تعریف‌شده به‌عنوان «موارد خاص» در تنظیمات
+     *
+     * @return int[]
+     */
+    public static function get_special_product_ids()
+    {
+        $ids = get_option('woo_excel_mng_special_products', array());
+
+        if (!is_array($ids)) {
+            return array();
+        }
+
+        return array_values(array_filter(array_map('intval', $ids)));
+    }
+
+    /**
+     * @param int $product_id
+     */
+    public static function is_special_product($product_id)
+    {
+        return in_array((int) $product_id, self::get_special_product_ids(), true);
+    }
+
+    /**
+     * فیلتر ردیف‌های اکسل برای یک محصول (وقتی ستون شناسه محصول وجود دارد)
+     *
+     * @param array $excel_rows
+     * @param int   $product_id
+     * @return array
+     */
+    public static function filter_excel_rows_for_product(array $excel_rows, $product_id)
+    {
+        $product_id = (int) $product_id;
+        $has_ids    = false;
+
+        foreach ($excel_rows as $row) {
+            if (!empty($row['product_id'])) {
+                $has_ids = true;
+                break;
+            }
+        }
+
+        if (!$has_ids) {
+            return $excel_rows;
+        }
+
+        return array_values(array_filter($excel_rows, function ($row) use ($product_id) {
+            return isset($row['product_id']) && (int) $row['product_id'] === $product_id;
+        }));
     }
 
     public static function import_products($products_data, $selected_product_ids = array())

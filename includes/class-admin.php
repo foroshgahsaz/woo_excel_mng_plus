@@ -135,6 +135,15 @@ class Woo_Excel_Mng_Admin
 
         add_submenu_page(
             'woo-excel-mng',
+            __('موارد خاص', 'woo-excel-mng'),
+            __('موارد خاص', 'woo-excel-mng'),
+            'manage_woocommerce',
+            'woo-excel-mng-special',
+            array($this, 'render_special_page')
+        );
+
+        add_submenu_page(
+            'woo-excel-mng',
             __('حمل‌ونقل', 'woo-excel-mng'),
             __('حمل‌ونقل', 'woo-excel-mng'),
             'manage_woocommerce',
@@ -178,6 +187,7 @@ class Woo_Excel_Mng_Admin
         return array(
             'dashboard' => __('داشبورد', 'woo-excel-mng'),
             'products'  => __('محصولات', 'woo-excel-mng'),
+            'special'   => __('موارد خاص', 'woo-excel-mng'),
             'shipping'  => __('حمل‌ونقل', 'woo-excel-mng'),
             'formulas'  => __('فرمول‌ها', 'woo-excel-mng'),
             'settings'  => __('تنظیمات', 'woo-excel-mng'),
@@ -619,6 +629,13 @@ class Woo_Excel_Mng_Admin
             update_option('woo_excel_mng_disable_meterage_products', array());
         }
 
+        if (isset($_POST['special_products']) && is_array($_POST['special_products'])) {
+            $special_products = array_map('intval', $_POST['special_products']);
+            update_option('woo_excel_mng_special_products', $special_products);
+        } else {
+            update_option('woo_excel_mng_special_products', array());
+        }
+
         add_action('admin_notices', function () {
             echo '<div class="notice notice-success"><p>' . __('تنظیمات با موفقیت ذخیره شد.', 'woo-excel-mng') . '</p></div>';
         });
@@ -859,7 +876,15 @@ class Woo_Excel_Mng_Admin
                 wp_send_json_error(__('خطا در ذخیره فایل موقت.', 'woo-excel-mng'));
             }
 
-            $parser_result = Woo_Excel_Mng_Excel_Parser::parse_products_file($temp_file);
+            $import_mode = isset($_POST['import_mode']) ? sanitize_key($_POST['import_mode']) : 'standard';
+            if (!in_array($import_mode, array('standard', 'special'), true)) {
+                $import_mode = 'standard';
+            }
+
+            $parse_args = array(
+                'require_product_id' => ($import_mode === 'special'),
+            );
+            $parser_result = Woo_Excel_Mng_Excel_Parser::parse_products_file($temp_file, $parse_args);
 
             if (file_exists($temp_file)) {
                 unlink($temp_file);
@@ -886,13 +911,42 @@ class Woo_Excel_Mng_Admin
                 wp_send_json_error(__('حداقل یک محصول را انتخاب کنید.', 'woo-excel-mng'));
             }
 
+            $special_product_ids = Woo_Excel_Mng_Products::get_special_product_ids();
+
+            if ($import_mode === 'special') {
+                if (empty($special_product_ids)) {
+                    wp_send_json_error(__('ابتدا در تنظیمات، محصولات خاص را مشخص کنید.', 'woo-excel-mng'));
+                }
+
+                foreach ($selected_product_ids as $product_id) {
+                    if (!in_array($product_id, $special_product_ids, true)) {
+                        wp_send_json_error(__('فقط محصولات تعریف‌شده در «محصولات خاص» قابل import هستند.', 'woo-excel-mng'));
+                    }
+                }
+            } else {
+                foreach ($selected_product_ids as $product_id) {
+                    if (in_array($product_id, $special_product_ids, true)) {
+                        wp_send_json_error(__('محصولات «موارد خاص» فقط از تب موارد خاص قابل import هستند.', 'woo-excel-mng'));
+                    }
+                }
+            }
+
             $product_queue = array();
             foreach ($selected_product_ids as $product_id) {
                 $product = wc_get_product($product_id);
                 if ($product && $product->is_type('variable')) {
+                    $filtered_rows = Woo_Excel_Mng_Products::filter_excel_rows_for_product($all_rows, $product_id);
+                    if ($import_mode === 'special' && empty($filtered_rows)) {
+                        wp_send_json_error(sprintf(
+                            __('برای محصول #%d در فایل اکسل ردیفی با شناسه محصول یافت نشد.', 'woo-excel-mng'),
+                            $product_id
+                        ));
+                    }
+
                     $product_queue[] = array(
                         'id'   => $product_id,
                         'name' => $product->get_name(),
+                        'row_count' => count($filtered_rows),
                     );
                 }
             }
@@ -927,6 +981,7 @@ class Woo_Excel_Mng_Admin
                 'product_index'  => 0,
                 'file_name'      => sanitize_text_field($file['name']),
                 'variation_rows' => count($all_rows),
+                'import_mode'    => $import_mode,
                 'created'        => 0,
                 'updated'        => 0,
                 'errors'         => array(),
@@ -1008,7 +1063,44 @@ class Woo_Excel_Mng_Admin
             $product_id   = $current_item['id'];
             $product_name = $current_item['name'];
 
-            $result  = Woo_Excel_Mng_Products::import_single_product($product_id, $excel_data);
+            $rows_for_product = Woo_Excel_Mng_Products::filter_excel_rows_for_product($excel_data, $product_id);
+            if (empty($rows_for_product)) {
+                $errors_for_empty = array(sprintf(
+                    __('برای محصول «%s» (#%d) ردیف اکسل یافت نشد.', 'woo-excel-mng'),
+                    $product_name,
+                    $product_id
+                ));
+                $state['errors'] = array_merge($state['errors'], $errors_for_empty);
+                $state['product_index'] = $product_index + 1;
+                $done = ($state['product_index'] >= $total_products);
+                if ($done) {
+                    Woo_Excel_Mng_Database::log_import(
+                        isset($state['import_mode']) && $state['import_mode'] === 'special' ? 'special_products' : 'products',
+                        $state['file_name'],
+                        'partial',
+                        implode(' ', $state['errors']),
+                        $state['created'] + $state['updated']
+                    );
+                    $this->cleanup_import_session($batch_id, $state);
+                } else {
+                    set_transient($batch_id, $state, 3600);
+                }
+                wp_send_json_success(array(
+                    'processed'        => $state['product_index'],
+                    'total'            => $total_products,
+                    'done'             => $done,
+                    'created'          => $state['created'],
+                    'updated'          => $state['updated'],
+                    'errors'           => $state['errors'],
+                    'current_product'  => $product_name,
+                    'current_product_id' => $product_id,
+                    'variations_rows'  => isset($current_item['row_count']) ? $current_item['row_count'] : count($rows_for_product),
+                    'last_created'     => 0,
+                    'log'              => sprintf(__('محصول «%s»: بدون ردیف اکسل', 'woo-excel-mng'), $product_name),
+                ));
+            }
+
+            $result  = Woo_Excel_Mng_Products::import_single_product($product_id, $rows_for_product);
             $created = isset($result['created']) ? intval($result['created']) : 0;
             $updated = isset($result['updated']) ? intval($result['updated']) : 0;
             $errors  = isset($result['errors']) && is_array($result['errors']) ? $result['errors'] : array();
@@ -1050,8 +1142,9 @@ class Woo_Excel_Mng_Admin
                     count($state['errors'])
                 );
 
+                $log_type = (isset($state['import_mode']) && $state['import_mode'] === 'special') ? 'special_products' : 'products';
                 Woo_Excel_Mng_Database::log_import(
-                    'products',
+                    $log_type,
                     $state['file_name'],
                     empty($state['errors']) ? 'success' : 'partial',
                     $log_summary,
@@ -1072,7 +1165,7 @@ class Woo_Excel_Mng_Admin
                 'errors'           => $state['errors'],
                 'current_product'  => $product_name,
                 'current_product_id' => $product_id,
-                'variations_rows'  => isset($state['variation_rows']) ? $state['variation_rows'] : count($excel_data),
+                'variations_rows'  => isset($current_item['row_count']) ? $current_item['row_count'] : count($rows_for_product),
                 'last_created'     => $created,
                 'log'              => sprintf(
                     __('محصول «%1$s»: %2$d واریانت ایجاد شد', 'woo-excel-mng'),
@@ -1138,6 +1231,16 @@ class Woo_Excel_Mng_Admin
     public function render_products_page()
     {
         $current_tab = 'products';
+        $tabs = $this->get_admin_tabs();
+        include WOO_EXCEL_MNG_PLUGIN_DIR . 'admin/views/main-page.php';
+    }
+
+    /**
+     * رندر صفحه موارد خاص
+     */
+    public function render_special_page()
+    {
+        $current_tab = 'special';
         $tabs = $this->get_admin_tabs();
         include WOO_EXCEL_MNG_PLUGIN_DIR . 'admin/views/main-page.php';
     }

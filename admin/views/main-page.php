@@ -13,6 +13,7 @@ if (!function_exists('woo_excel_mng_get_tab_icon')) {
         $icons = array(
             'dashboard' => 'dashicons-dashboard',
             'products' => 'dashicons-products',
+            'special' => 'dashicons-star-filled',
             'shipping' => 'dashicons-cart',
             'formulas' => 'dashicons-calculator',
             'settings' => 'dashicons-admin-settings',
@@ -48,6 +49,9 @@ if (!function_exists('woo_excel_mng_get_tab_icon')) {
                     break;
                 case 'products':
                     include WOO_EXCEL_MNG_PLUGIN_DIR . 'admin/views/products-tab.php';
+                    break;
+                case 'special':
+                    include WOO_EXCEL_MNG_PLUGIN_DIR . 'admin/views/special-tab.php';
                     break;
                 case 'shipping':
                     include WOO_EXCEL_MNG_PLUGIN_DIR . 'admin/views/shipping-tab.php';

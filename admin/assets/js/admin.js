@@ -19,19 +19,6 @@
             }
         });
         
-        function wemCanStartImport() {
-            var hasFile = $('#products_file')[0] && $('#products_file')[0].files && $('#products_file')[0].files.length > 0;
-            var hasProducts = $('#selected_products').val() && $('#selected_products').val().length > 0;
-            $('#wem-start-import').prop('disabled', !(hasFile && hasProducts));
-        }
-
-        $('#products_file').on('change', function() {
-            var fileName = $(this).val().split('\\').pop();
-            $('#products_file_name').text(fileName ? '✓ ' + fileName : '');
-            wemCanStartImport();
-        });
-
-        $('#selected_products').on('change', wemCanStartImport);
         
         // ===== مدیریت ذخیره مسیرهای حمل‌ونقل =====
         $('.save-route').on('click', function(e) {
@@ -157,14 +144,58 @@
         });
         
         // ===== Import محصولات با نوار پیشرفت (AJAX) =====
-        
-        var wemImport = {
+
+        function createWemImportController($root) {
+            var importMode = $root.data('import-mode') || 'standard';
+
+            return {
+            $root      : $root,
+            importMode : importMode,
             batchId    : null,
             total      : 0,
             processed  : 0,
             variationRows : 0,
             productNames  : [],
             batchSize  : wooExcelMng.strings.batch_size || 1,
+
+            canStartImport: function() {
+                var fileInput = $root.find('.wem-products-file')[0];
+                var hasFile = fileInput && fileInput.files && fileInput.files.length > 0;
+                var selected = $root.find('.wem-selected-products').val() || [];
+                var hasProducts = selected.length > 0;
+                $root.find('.wem-start-import').prop('disabled', !(hasFile && hasProducts));
+            },
+
+            bindFormEvents: function() {
+                var self = this;
+                $root.find('.wem-products-file').on('change', function() {
+                    var fileName = $(this).val().split('\\').pop();
+                    $root.find('.wem-file-name').text(fileName ? '✓ ' + fileName : '');
+                    self.canStartImport();
+                });
+                $root.find('.wem-selected-products').on('change', function() {
+                    self.canStartImport();
+                });
+                $root.find('.wem-start-import').on('click', function() {
+                    var fileInput = $root.find('.wem-products-file')[0];
+                    if (!fileInput || !fileInput.files || !fileInput.files.length) {
+                        alert('لطفاً یک فایل انتخاب کنید.');
+                        return;
+                    }
+                    var selected = $root.find('.wem-selected-products').val() || [];
+                    if (!selected.length) {
+                        alert('لطفاً حداقل یک محصول انتخاب کنید.');
+                        return;
+                    }
+                    var ext = fileInput.files[0].name.split('.').pop().toLowerCase();
+                    if (ext !== 'xlsx' && ext !== 'xls') {
+                        alert('فقط فایل‌های Excel (.xlsx, .xls) مجاز هستند.');
+                        return;
+                    }
+                    self.start(fileInput.files[0]);
+                });
+                self.canStartImport();
+            },
             
             toFarsi: function(n) {
                 return String(n).replace(/\d/g, function(d) {
@@ -173,29 +204,29 @@
             },
             
             setLabel: function(icon, text) {
-                $('#wem-progress-icon').html(icon);
-                $('#wem-progress-label').text(text);
+                $root.find('.wem-progress-icon').first().html(icon);
+                $root.find('.wem-progress-label').first().text(text);
             },
             
             setProgress: function(done, total) {
                 var pct = total > 0 ? Math.round((done / total) * 100) : 0;
-                $('#wem-progress-fill').css('width', pct + '%');
-                $('#wem-progress-percent').text(this.toFarsi(pct) + '٪');
-                $('#wem-stat-done').text(this.toFarsi(done));
-                $('#wem-stat-total').text(this.toFarsi(total));
+                $root.find('.wem-progress-fill').first().css('width', pct + '%');
+                $root.find('.wem-progress-percent').first().text(this.toFarsi(pct) + '٪');
+                $root.find('.wem-stat-done').first().text(this.toFarsi(done));
+                $root.find('.wem-stat-total').first().text(this.toFarsi(total));
                 var rem = total - done;
-                $('#wem-stat-remaining').text(rem > 0 ? this.toFarsi(rem) : '✓');
+                $root.find('.wem-stat-remaining').first().text(rem > 0 ? this.toFarsi(rem) : '✓');
             },
 
             setCurrentProduct: function(name, variationRows) {
                 if (!name) {
-                    $('#wem-current-product').hide();
+                    $root.find('.wem-current-product').hide();
                     return;
                 }
-                $('#wem-current-product').show();
-                $('#wem-current-product-name').text(name);
+                $root.find('.wem-current-product').show();
+                $root.find('.wem-current-product-name').first().text(name);
                 if (variationRows) {
-                    $('#wem-variation-hint').text(
+                    $root.find('.wem-variation-hint').first().text(
                         (wooExcelMng.strings.variations_count || 'تعداد واریانت در اکسل:') +
                         ' ' + this.toFarsi(variationRows)
                     );
@@ -204,7 +235,7 @@
             
             addLog: function(text, type) {
                 var cls = type === 'error' ? 'wem-log-error' : (type === 'success' ? 'wem-log-success' : 'wem-log-info');
-                var $log = $('#wem-mini-log');
+                var $log = $root.find('.wem-mini-log');
                 $log.append('<div class="wem-log-line ' + cls + '">' + text + '</div>');
                 $log.scrollTop($log[0].scrollHeight);
             },
@@ -240,16 +271,16 @@
                 var self = this;
                 
                 // نمایش progress، پنهان کردن فرم
-                $('#wem-upload-area').hide();
-                $('#wem-progress-area').show();
-                $('#wem-result-area').hide().html('');
-                $('#wem-mini-log').html('');
+                $root.find('.wem-upload-area').hide();
+                $root.find('.wem-progress-area').show();
+                $root.find('.wem-result-area').hide().html('');
+                $root.find('.wem-mini-log').html('');
                 
                 self.setLabel('⏳', wooExcelMng.strings.uploading);
                 self.setProgress(0, 0);
                 
                 // آپلود فایل و parse
-                var selected = $('#selected_products').val() || [];
+                var selected = $root.find('.wem-selected-products').val() || [];
                 if (!selected.length) {
                     alert('لطفاً حداقل یک محصول انتخاب کنید.');
                     return;
@@ -258,6 +289,7 @@
                 var formData = new FormData();
                 formData.append('action', 'woo_excel_mng_start_import');
                 formData.append('nonce', wooExcelMng.nonce);
+                formData.append('import_mode', self.importMode);
                 formData.append('products_file', file);
                 $.each(selected, function(i, id) {
                     formData.append('selected_products[]', id);
@@ -376,60 +408,48 @@
                     html += '</ul></div>';
                 }
                 
-                html += '<button type="button" id="wem-reset-btn" class="button button-secondary" style="margin-top:12px;">آپلود فایل جدید</button>';
+                html += '<button type="button" class="wem-reset-btn button button-secondary" style="margin-top:12px;">آپلود فایل جدید</button>';
                 html += '</div>';
                 
-                $('#wem-result-area').html(html).show();
+                $root.find('.wem-result-area').html(html).show();
                 
                 // دکمه آپلود مجدد
-                $('#wem-reset-btn').on('click', function() {
+                $root.find('.wem-reset-btn').on('click', function() {
                     self.resetForm();
                 });
             },
 
             resetForm: function() {
-                $('#wem-progress-area').hide();
-                $('#wem-result-area').hide().html('');
-                $('#wem-current-product').hide();
-                $('#products_file').val('');
-                $('#products_file_name').text('');
-                $('#selected_products').val([]);
-                wemCanStartImport();
-                $('#wem-upload-area').show();
+                $root.find('.wem-progress-area').hide();
+                $root.find('.wem-result-area').hide().html('');
+                $root.find('.wem-current-product').hide();
+                $root.find('.wem-products-file').val('');
+                $root.find('.wem-file-name').text('');
+                $root.find('.wem-selected-products').val([]);
+                this.canStartImport();
+                $root.find('.wem-upload-area').show();
             },
             
             showError: function(msg) {
                 var self = this;
                 self.setLabel('❌', wooExcelMng.strings.error);
-                $('#wem-result-area').html(
+                $root.find('.wem-result-area').html(
                     '<div class="wem-result-box wem-result-error">' +
                     '<div class="wem-result-title">❌ خطا در پردازش</div>' +
                     '<p>' + msg + '</p>' +
-                    '<button type="button" id="wem-reset-btn" class="button button-secondary">دوباره امتحان کنید</button>' +
+                    '<button type="button" class="wem-reset-btn button button-secondary">دوباره امتحان کنید</button>' +
                     '</div>'
                 ).show();
-                $('#wem-reset-btn').on('click', function() {
-                    wemImport.resetForm();
+                $root.find('.wem-reset-btn').on('click', function() {
+                    self.resetForm();
                 });
             }
         };
-        
-        $('#wem-start-import').on('click', function() {
-            var file = $('#products_file')[0];
-            if (!file || !file.files || !file.files.length) {
-                alert('لطفاً یک فایل انتخاب کنید.');
-                return;
-            }
-            if (!$('#selected_products').val() || !$('#selected_products').val().length) {
-                alert('لطفاً حداقل یک محصول انتخاب کنید.');
-                return;
-            }
-            var ext = file.files[0].name.split('.').pop().toLowerCase();
-            if (ext !== 'xlsx' && ext !== 'xls') {
-                alert('فقط فایل‌های Excel (.xlsx, .xls) مجاز هستند.');
-                return;
-            }
-            wemImport.start(file.files[0]);
+        }
+
+        $('.wem-import-root').each(function() {
+            var controller = createWemImportController($(this));
+            controller.bindFormEvents();
         });
         
         // ===== نمایش پیام موفقیت/خطا =====
